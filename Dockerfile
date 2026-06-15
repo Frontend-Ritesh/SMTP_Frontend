@@ -16,7 +16,7 @@ ENV VITE_API_BASE=${VITE_API_BASE}
 # Build the production assets
 RUN npm run build
 
-EXPOSE 5173
+EXPOSE 7086
 
 # Serve the build using Vite's built-in preview server
-CMD ["npx", "vite", "preview", "--host", "--port", "5173"]
+CMD ["npx", "vite", "preview", "--host", "--port", "7086"]

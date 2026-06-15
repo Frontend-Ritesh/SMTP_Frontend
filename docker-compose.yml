@@ -4,10 +4,10 @@ services:
     build:
       context: .
       args:
-        - VITE_API_BASE=${VITE_API_BASE:-http://localhost:8000}
+        - VITE_API_BASE=${VITE_API_BASE:-http://localhost:7085}
     restart: unless-stopped
     ports:
-      - "${PORT:-5173}:5173"
+      - "${PORT:-7086}:7086"
 
   frontend-dev:
     # Development service: runs the Vite development server with hot reload
@@ -18,7 +18,7 @@ services:
       - .:/app
       - /app/node_modules
     ports:
-      - "5173:5173"
+      - "7086:7086"
     environment:
-      - VITE_API_BASE=${VITE_API_BASE:-http://localhost:8000}
+      - VITE_API_BASE=${VITE_API_BASE:-http://localhost:7085}
     command: npm run dev
