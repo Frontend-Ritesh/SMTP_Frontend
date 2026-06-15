@@ -3,9 +3,61 @@ import {
   Inbox, Send, FileText, ShieldAlert, Bell, Users, Mail,
   Search, RefreshCw, Trash2, Edit, LogOut, ShieldAlert as AdminIcon,
   Paperclip, X, ChevronRight, User, Calendar, Plus, ChevronLeft,
-  Star, MoreVertical, ChevronDown, ShieldOff, ShieldCheck
+  Star, MoreVertical, ChevronDown, ShieldOff, ShieldCheck, Reply
 } from 'lucide-react';
 import { request } from '../api/client';
+
+const RichTextEditor = ({ value, onChange, placeholder, id }) => {
+  const editorRef = useRef(null);
+
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value || '';
+    }
+  }, [value]);
+
+  const handleInput = () => {
+    if (editorRef.current) {
+      onChange(editorRef.current.innerHTML);
+    }
+  };
+
+  const executeCommand = (command, val = null) => {
+    document.execCommand(command, false, val);
+    handleInput();
+  };
+
+  return (
+    <div style={styles.rteContainer}>
+      <div style={styles.rteToolbar}>
+        <button type="button" style={styles.rteToolbarBtn} onClick={() => executeCommand('bold')} title="Bold">
+          <b>B</b>
+        </button>
+        <button type="button" style={styles.rteToolbarBtn} onClick={() => executeCommand('italic')} title="Italic">
+          <i>I</i>
+        </button>
+        <button type="button" style={styles.rteToolbarBtn} onClick={() => executeCommand('underline')} title="Underline">
+          <u>U</u>
+        </button>
+        <div style={styles.rteDivider}></div>
+        <button type="button" style={styles.rteToolbarBtn} onClick={() => executeCommand('insertUnorderedList')} title="Bullet List">
+          • List
+        </button>
+        <button type="button" style={styles.rteToolbarBtn} onClick={() => executeCommand('insertOrderedList')} title="Numbered List">
+          1. List
+        </button>
+      </div>
+      <div
+        id={id}
+        ref={editorRef}
+        contentEditable
+        onInput={handleInput}
+        placeholder={placeholder}
+        style={styles.rteEditor}
+      />
+    </div>
+  );
+};
 
 export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavigateToTenant }) {
   const [folders, setFolders] = useState(['INBOX', 'Sent', 'Drafts', 'Spam', 'Notifications', 'Social']);
@@ -27,6 +79,14 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState(null);
   const [syncingMailbox, setSyncingMailbox] = useState(false);
+
+  const [replyType, setReplyType] = useState(null);
+  const [replyBody, setReplyBody] = useState('');
+  const [replyTo, setReplyTo] = useState('');
+  const [replyAttachments, setReplyAttachments] = useState([]);
+  const [replySending, setReplySending] = useState(false);
+  const [draftId, setDraftId] = useState(null);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
 
   const [showCompose, setShowCompose] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -111,7 +171,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
         if (res.folders && res.folders.length > 0) {
           // Normalize folders (e.g. capitalize INBOX and merge with defaults)
           const fetched = res.folders.map(f => f === 'INBOX' ? 'INBOX' : f);
-          const combined = Array.from(new Set(['INBOX', 'Sent', 'Drafts', 'Spam', ...fetched]));
+          const combined = Array.from(new Set(['INBOX', 'Starred', 'Sent', 'Drafts', 'Spam', ...fetched]));
           setFolders(combined);
         }
       } catch (err) {
@@ -124,11 +184,23 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
   // Fetch Message List
   const fetchMessages = async (folderName, sync = true) => {
     setLoadingList(true);
-    if (sync) setSyncingMailbox(true);
+    if (sync && folderName.toLowerCase() !== 'starred') setSyncingMailbox(true);
     try {
-      const url = `/api/messages/?folder=${encodeURIComponent(folderName)}`;
+      const url = folderName.toLowerCase() === 'starred'
+        ? '/api/messages/starred/'
+        : `/api/messages/?folder=${encodeURIComponent(folderName)}`;
       const res = await request(url);
-      setMessages(res.results || res || []);
+      const msgList = res.results || res || [];
+      setMessages(msgList);
+      
+      // Sync starred state from database
+      const initialStarred = {};
+      msgList.forEach(m => {
+        if (m.flagged) {
+          initialStarred[m.uid] = true;
+        }
+      });
+      setStarredUids(prev => ({ ...prev, ...initialStarred }));
     } catch (err) {
       console.error('Failed to load messages:', err);
     } finally {
@@ -245,6 +317,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       if (composeBcc.trim()) formData.append('bcc', composeBcc);
       formData.append('subject', composeSubject);
       formData.append('body', composeBody);
+      if (draftId) formData.append('draft_id', draftId);
       
       attachments.forEach((file) => {
         formData.append('attachments', file);
@@ -263,6 +336,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       setComposeSubject('');
       setComposeBody('');
       setAttachments([]);
+      setDraftId(null);
       
       // Refresh Sent box if active
       if (activeFolder === 'Sent') {
@@ -321,10 +395,174 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
     setSelectedUids(prev => ({ ...prev, [uid]: !prev[uid] }));
   };
 
-  const toggleStarRow = (e, uid) => {
+  const toggleStarRow = async (e, msg) => {
     e.stopPropagation();
-    setStarredUids(prev => ({ ...prev, [uid]: !prev[uid] }));
+    const nextStarredState = !starredUids[msg.uid];
+    
+    // Optimistic update
+    setStarredUids(prev => ({ ...prev, [msg.uid]: nextStarredState }));
+    
+    try {
+      await request('/api/messages/bulk-action/', {
+        method: 'POST',
+        body: JSON.stringify({
+          uids: [msg.uid],
+          folder: msg.folder || activeFolder,
+          action: nextStarredState ? 'star' : 'unstar'
+        })
+      });
+      if (activeFolder.toLowerCase() === 'starred' && !nextStarredState) {
+        setMessages(prev => prev.filter(m => m.uid !== msg.uid));
+      }
+    } catch (err) {
+      console.error('Failed to update star state on server:', err);
+      // Rollback
+      setStarredUids(prev => ({ ...prev, [msg.uid]: !nextStarredState }));
+      alert('Failed to update star: ' + err.message);
+    }
   };
+
+  const handleBulkAction = async (action) => {
+    const selectedList = Object.keys(selectedUids)
+      .filter(uid => selectedUids[uid])
+      .map(Number);
+      
+    if (selectedList.length === 0) return;
+    
+    if (action === 'delete') {
+      if (!window.confirm(`Are you sure you want to delete ${selectedList.length} selected emails?`)) return;
+    }
+    
+    setLoadingList(true);
+    try {
+      await request('/api/messages/bulk-action/', {
+        method: 'POST',
+        body: JSON.stringify({
+          uids: selectedList,
+          folder: activeFolder,
+          action: action
+        })
+      });
+      
+      if (action === 'delete') {
+        setMessages(prev => prev.filter(m => !selectedUids[m.uid]));
+        if (selectedMessage && selectedUids[selectedMessage.uid]) {
+          setSelectedMessage(null);
+          setMessageDetails(null);
+        }
+      } else if (action === 'read') {
+        setMessages(prev => prev.map(m => selectedUids[m.uid] ? { ...m, seen: true } : m));
+      } else if (action === 'unread') {
+        setMessages(prev => prev.map(m => selectedUids[m.uid] ? { ...m, seen: false } : m));
+      }
+      
+      setSelectedUids({});
+    } catch (err) {
+      alert(`Failed to perform bulk ${action}: ` + err.message);
+    } finally {
+      setLoadingList(false);
+    }
+  };
+
+  const initiateReply = (type) => {
+    setReplyType(type);
+    setReplyBody('');
+    setReplyAttachments([]);
+    if (type === 'reply' || type === 'reply_all') {
+      setReplyTo(messageDetails.from);
+    } else {
+      setReplyTo('');
+    }
+  };
+
+  const handleSendReply = async (e) => {
+    e.preventDefault();
+    let toRecipient = replyTo;
+    if (replyType === 'reply' || replyType === 'reply_all') {
+      toRecipient = messageDetails.from;
+    }
+    
+    if (!toRecipient.trim()) {
+      alert('Recipient is required');
+      return;
+    }
+    
+    setReplySending(true);
+    try {
+      const formData = new FormData();
+      formData.append('to', toRecipient);
+      formData.append('subject', replyType === 'forward' ? `Fwd: ${messageDetails.subject}` : `Re: ${messageDetails.subject}`);
+      formData.append('body', replyBody);
+      formData.append('in_reply_to', messageDetails.message_id || '');
+      formData.append('references', messageDetails.references || messageDetails.message_id || '');
+      
+      if (replyType === 'reply_all' && messageDetails.to) {
+        // Add CCs (excluding user's address)
+        const allRecipients = messageDetails.to.filter(email => email.toLowerCase() !== user.mailbox.toLowerCase());
+        if (allRecipients.length > 0) {
+          formData.append('cc', allRecipients.join(','));
+        }
+      }
+      
+      replyAttachments.forEach(file => {
+        formData.append('attachments', file);
+      });
+      
+      await request('/api/send/', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      alert('Reply sent successfully!');
+      setReplyType(null);
+      setReplyBody('');
+      setReplyAttachments([]);
+      setReplyTo('');
+    } catch (err) {
+      alert('Failed to send reply: ' + err.message);
+    } finally {
+      setReplySending(false);
+    }
+  };
+
+  // Drafts Auto-Save Effect
+  useEffect(() => {
+    if (!showCompose) {
+      setDraftId(null);
+      return;
+    }
+    
+    // Don't auto-save if everything is empty
+    if (!composeTo.trim() && !composeCc.trim() && !composeBcc.trim() && !composeSubject.trim() && !composeBody.trim()) {
+      return;
+    }
+    
+    const delayDebounce = setTimeout(async () => {
+      setIsSavingDraft(true);
+      try {
+        const res = await request('/api/drafts/', {
+          method: 'POST',
+          body: JSON.stringify({
+            to: composeTo,
+            cc: composeCc,
+            bcc: composeBcc,
+            subject: composeSubject,
+            body: composeBody,
+            message_id: draftId
+          })
+        });
+        if (res.message_id) {
+          setDraftId(res.message_id);
+        }
+      } catch (err) {
+        console.error('Draft auto-save failed:', err);
+      } finally {
+        setIsSavingDraft(false);
+      }
+    }, 2500);
+    
+    return () => clearTimeout(delayDebounce);
+  }, [composeTo, composeCc, composeBcc, composeSubject, composeBody, showCompose]);
 
   const startIndex = (currentPage - 1) * PAGE_SIZE;
   const endIndex = startIndex + PAGE_SIZE;
@@ -497,18 +735,53 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                   <ChevronDown size={14} style={{ color: 'var(--text-secondary)', cursor: 'pointer' }} />
                 </div>
                 
-                <button
-                  className="action-bar-btn"
-                  onClick={() => fetchMessages(activeFolder, true)}
-                  disabled={loadingList || syncingMailbox}
-                  title="Refresh"
-                >
-                  <RefreshCw size={16} className={syncingMailbox ? 'animate-spin' : ''} />
-                </button>
+                {Object.values(selectedUids).filter(Boolean).length > 0 ? (
+                  <>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                      {Object.values(selectedUids).filter(Boolean).length} selected
+                    </span>
+                    <button
+                      type="button"
+                      className="action-bar-btn"
+                      onClick={() => handleBulkAction('delete')}
+                      title="Delete selected"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="action-bar-btn"
+                      onClick={() => handleBulkAction('read')}
+                      title="Mark as read"
+                    >
+                      <Mail size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="action-bar-btn"
+                      onClick={() => handleBulkAction('unread')}
+                      title="Mark as unread"
+                    >
+                      <Mail size={16} style={{ opacity: 0.6 }} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="action-bar-btn"
+                      onClick={() => fetchMessages(activeFolder, true)}
+                      disabled={loadingList || syncingMailbox}
+                      title="Refresh"
+                    >
+                      <RefreshCw size={16} className={syncingMailbox ? 'animate-spin' : ''} />
+                    </button>
 
-                <button className="action-bar-btn" title="More">
-                  <MoreVertical size={16} />
-                </button>
+                    <button className="action-bar-btn" title="More">
+                      <MoreVertical size={16} />
+                    </button>
+                  </>
+                )}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -572,7 +845,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                           onClick={(e) => e.stopPropagation()}
                         />
                         <button
-                          onClick={(e) => toggleStarRow(e, msg.uid)}
+                          onClick={(e) => toggleStarRow(e, msg)}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -842,6 +1115,109 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                     })}
                   </div>
                 </div>
+                
+                {/* Quick Reply Toolbar at the bottom of the details view */}
+                {!replyType ? (
+                  <div style={{ display: 'flex', gap: '10px', padding: '1.5rem', borderTop: '1px solid var(--glass-border)', backgroundColor: 'var(--bg-secondary)' }}>
+                    <button
+                      type="button"
+                      style={styles.replyToolbarBtn}
+                      onClick={() => initiateReply('reply')}
+                    >
+                      <Reply size={16} style={{ marginRight: '6px' }} />
+                      <span>Reply</span>
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.replyToolbarBtn}
+                      onClick={() => initiateReply('reply_all')}
+                    >
+                      <Users size={16} style={{ marginRight: '6px' }} />
+                      <span>Reply All</span>
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.replyToolbarBtn}
+                      onClick={() => initiateReply('forward')}
+                    >
+                      <Send size={16} style={{ marginRight: '6px', transform: 'rotate(-45deg)' }} />
+                      <span>Forward</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div style={styles.quickReplyContainer}>
+                    <div style={styles.quickReplyHeader}>
+                      <span style={{ fontWeight: '600', textTransform: 'capitalize', color: 'var(--text-primary)' }}>
+                        {replyType.replace('_', ' ')}
+                      </span>
+                      <button type="button" style={styles.closeReplyBtn} onClick={() => setReplyType(null)}>
+                        <X size={16} />
+                      </button>
+                    </div>
+                    
+                    <form onSubmit={handleSendReply} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {replyType === 'forward' && (
+                        <div style={styles.composeInputRow}>
+                          <span style={styles.composeInputLabel}>To</span>
+                          <input
+                            type="text"
+                            value={replyTo}
+                            onChange={(e) => setReplyTo(e.target.value)}
+                            style={styles.composeInput}
+                            required
+                            placeholder="Recipient email address"
+                          />
+                        </div>
+                      )}
+                      
+                      <div style={styles.composeBodyWrapper}>
+                        <RichTextEditor
+                          id="reply-body-editor"
+                          placeholder="Type your reply here..."
+                          value={replyBody}
+                          onChange={setReplyBody}
+                        />
+                      </div>
+
+                      {replyAttachments.length > 0 && (
+                        <div style={styles.composeFileList}>
+                          {replyAttachments.map((file, index) => (
+                            <div key={index} style={styles.composeFileItem}>
+                              <Paperclip size={12} style={{ marginRight: '6px' }} />
+                              <span style={{ flex: 1, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                 {file.name}
+                              </span>
+                              <button 
+                                type="button" 
+                                onClick={() => setReplyAttachments(prev => prev.filter((_, i) => i !== index))}
+                                style={styles.removeFileBtn}
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div style={styles.composeFooter}>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button 
+                            type="button" 
+                            style={styles.attachBtn} 
+                            onClick={() => fileInputRef.current.click()}
+                          >
+                            <Paperclip size={18} style={{ marginRight: '6px' }} />
+                            <span>Attach Files</span>
+                          </button>
+                        </div>
+
+                        <button type="submit" style={styles.sendBtn} disabled={replySending}>
+                          {replySending ? <RefreshCw size={16} className="animate-spin" /> : 'Send'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
               </div>
             ) : (
               <div style={styles.centerBox}>
@@ -906,12 +1282,11 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
             </div>
 
             <div style={styles.composeBodyWrapper}>
-              <textarea
+              <RichTextEditor
+                id="compose-body-editor"
                 placeholder="Write your email here..."
                 value={composeBody}
-                onChange={(e) => setComposeBody(e.target.value)}
-                style={styles.composeTextarea}
-                required
+                onChange={setComposeBody}
               />
             </div>
 
@@ -1617,5 +1992,89 @@ const styles = {
   paginationText: {
     fontSize: '0.75rem',
     color: 'var(--text-secondary)',
+  },
+  rteContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    border: '1px solid var(--glass-border)',
+    borderRadius: '8px',
+    backgroundColor: '#ffffff',
+    overflow: 'hidden',
+    width: '100%',
+  },
+  rteToolbar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '6px 12px',
+    backgroundColor: 'var(--bg-secondary)',
+    borderBottom: '1px solid var(--glass-border)',
+  },
+  rteToolbarBtn: {
+    padding: '4px 8px',
+    backgroundColor: 'transparent',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '0.85rem',
+    color: 'var(--text-primary)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '24px',
+    height: '24px',
+    ':hover': {
+      backgroundColor: 'var(--bg-tertiary)',
+    },
+  },
+  rteDivider: {
+    width: '1px',
+    height: '16px',
+    backgroundColor: 'var(--glass-border)',
+    margin: '0 4px',
+  },
+  rteEditor: {
+    minHeight: '120px',
+    padding: '12px',
+    outline: 'none',
+    fontSize: '0.925rem',
+    color: '#000000',
+    backgroundColor: '#ffffff',
+    textAlign: 'left',
+    overflowY: 'auto',
+  },
+  quickReplyContainer: {
+    borderTop: '1px solid var(--glass-border)',
+    padding: '1.5rem',
+    backgroundColor: 'var(--bg-secondary)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+  },
+  quickReplyHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    fontSize: '0.9rem',
+    color: 'var(--text-primary)',
+  },
+  closeReplyBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    color: 'var(--text-secondary)',
+  },
+  replyToolbarBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '0.5rem 1rem',
+    backgroundColor: 'var(--bg-secondary)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--glass-border)',
+    borderRadius: '24px',
+    cursor: 'pointer',
+    fontWeight: '600',
+    fontSize: '0.85rem',
+    transition: 'background-color var(--transition-fast)',
   },
 };
