@@ -32,6 +32,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [composeTo, setComposeTo] = useState('');
   const [composeCc, setComposeCc] = useState('');
+  const [composeBcc, setComposeBcc] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
   const [attachments, setAttachments] = useState([]);
@@ -241,6 +242,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       const formData = new FormData();
       formData.append('to', composeTo);
       if (composeCc.trim()) formData.append('cc', composeCc);
+      if (composeBcc.trim()) formData.append('bcc', composeBcc);
       formData.append('subject', composeSubject);
       formData.append('body', composeBody);
       
@@ -257,6 +259,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       setShowCompose(false);
       setComposeTo('');
       setComposeCc('');
+      setComposeBcc('');
       setComposeSubject('');
       setComposeBody('');
       setAttachments([]);
@@ -878,6 +881,16 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                 type="text"
                 value={composeCc}
                 onChange={(e) => setComposeCc(e.target.value)}
+                style={styles.composeInput}
+              />
+            </div>
+
+            <div style={styles.composeInputRow}>
+              <span style={styles.composeInputLabel}>Bcc</span>
+              <input
+                type="text"
+                value={composeBcc}
+                onChange={(e) => setComposeBcc(e.target.value)}
                 style={styles.composeInput}
               />
             </div>
