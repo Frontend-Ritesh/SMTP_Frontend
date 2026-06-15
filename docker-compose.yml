@@ -8,19 +8,3 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-7086}:7086"
-
-  frontend-dev:
-    # Development service: runs the Vite development server with hot reload
-    profiles:
-      - dev
-    image: node:20-alpine
-    restart: unless-stopped
-    working_dir: /app
-    volumes:
-      - .:/app
-      - /app/node_modules
-    ports:
-      - "7087:7086"
-    environment:
-      - VITE_API_BASE=${VITE_API_BASE:-http://localhost:7085}
-    command: sh -c "npm install && npm run dev -- --port 7086"
