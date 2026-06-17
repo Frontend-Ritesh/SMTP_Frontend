@@ -246,7 +246,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
     try {
       const res = await request(`/api/messages/${encodeURIComponent(msg.folder)}/${msg.uid}/`);
       setMessageDetails(res);
-      setExpandedMessages({ [msg.uid]: true });
+      setExpandedMessages({ [`${msg.folder}-${msg.uid}`]: true });
       // Mark as seen locally
       setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, seen: true } : m));
     } catch (err) {
@@ -649,6 +649,21 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
     
     return () => clearTimeout(delayDebounce);
   }, [composeTo, composeCc, composeBcc, composeSubject, composeBody, showCompose]);
+
+  // Deduplicate messages in a thread
+  const getDeduplicatedThread = (details) => {
+    if (!details) return [];
+    if (!details.thread) return [details];
+    const seen = new Set();
+    return details.thread.filter(t => {
+      const key = `${t.folder}-${t.uid}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
 
   // Group messages by conversation_id
   const getGroupedMessages = (msgList) => {
@@ -1140,15 +1155,18 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                   <h2 style={styles.detailSubject}>{messageDetails.subject || '(No Subject)'}</h2>
                   
                   <div style={styles.threadContainer}>
-                    {(messageDetails.thread || [messageDetails]).map((t, index) => {
-                      const isExpanded = expandedMessages[t.uid] || t.is_target;
+                    {getDeduplicatedThread(messageDetails).map((t, index) => {
+                      const isExpanded = expandedMessages[`${t.folder}-${t.uid}`] || t.is_target;
                       return (
-                        <div key={t.uid || index} style={styles.threadCard}>
+                        <div key={`${t.folder}-${t.uid}`} style={styles.threadCard}>
                           {/* Header row */}
                           <div 
                             style={styles.threadCardHeader}
                             className="thread-card-header"
-                            onClick={() => setExpandedMessages(prev => ({ ...prev, [t.uid]: !prev[t.uid] }))}
+                            onClick={() => setExpandedMessages(prev => ({
+                              ...prev,
+                              [`${t.folder}-${t.uid}`]: !prev[`${t.folder}-${t.uid}`]
+                            }))}
                           >
                             {t.sender_avatar ? (
                               <img 
