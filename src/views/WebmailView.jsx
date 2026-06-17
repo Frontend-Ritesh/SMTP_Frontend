@@ -654,13 +654,33 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
   const getDeduplicatedThread = (details) => {
     if (!details) return [];
     if (!details.thread) return [details];
+    
+    // Filter out drafts if they are not the target message
+    const filteredDrafts = details.thread.filter(t => {
+      return !(t.folder && t.folder.toLowerCase() === 'drafts' && !t.is_target);
+    });
+
     const seen = new Set();
-    return details.thread.filter(t => {
-      const key = `${t.folder}-${t.uid}`;
-      if (seen.has(key)) {
-        return false;
+    // Prioritize target message in deduplication check by processing it or placing it in seen first
+    const target = filteredDrafts.find(t => t.is_target);
+    if (target) {
+      if (target.message_id) seen.add(target.message_id.trim());
+      seen.add(`${target.folder}-${target.uid}`);
+    }
+
+    return filteredDrafts.filter(t => {
+      if (t.is_target) return true; // target is already added and kept
+      
+      const folderUidKey = `${t.folder}-${t.uid}`;
+      if (seen.has(folderUidKey)) return false;
+      
+      const msgIdKey = t.message_id ? t.message_id.trim() : null;
+      if (msgIdKey) {
+        if (seen.has(msgIdKey)) return false;
+        seen.add(msgIdKey);
       }
-      seen.add(key);
+      
+      seen.add(folderUidKey);
       return true;
     });
   };
