@@ -3,7 +3,8 @@ import {
   Inbox, Send, FileText, ShieldAlert, Bell, Users, Mail,
   Search, RefreshCw, Trash2, Edit, LogOut, ShieldAlert as AdminIcon,
   Paperclip, X, ChevronRight, User, Calendar, Plus, ChevronLeft,
-  Star, MoreVertical, ChevronDown, ShieldOff, ShieldCheck, Reply
+  Star, MoreVertical, ChevronDown, ShieldOff, ShieldCheck, Reply,
+  Forward
 } from 'lucide-react';
 import { request } from '../api/client';
 
@@ -87,6 +88,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
   const [replySending, setReplySending] = useState(false);
   const [draftId, setDraftId] = useState(null);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [activeReplyMessage, setActiveReplyMessage] = useState(null);
 
   const [showCompose, setShowCompose] = useState(false);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -487,10 +489,11 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
     }
   };
 
-  const getReplyRecipient = (msgDetails) => {
+  const getReplyRecipient = (msgDetails, targetMsg = null) => {
     if (!msgDetails) return '';
-    const thread = msgDetails.thread || [];
-    const lastMsg = thread.length > 0 ? thread[thread.length - 1] : msgDetails;
+    const lastMsg = targetMsg || (msgDetails.thread && msgDetails.thread.length > 0 
+      ? msgDetails.thread[msgDetails.thread.length - 1] 
+      : msgDetails);
     
     const cleanEmail = (emailStr) => {
       if (!emailStr) return '';
@@ -516,22 +519,50 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
     return lastMsg.from || senderEmail;
   };
 
-  const initiateReply = (type) => {
+  const initiateIndividualReply = (msg, type) => {
+    if (!msg) return;
     setReplyType(type);
-    setReplyBody('');
     setReplyAttachments([]);
+    setActiveReplyMessage(msg);
+    
     if (type === 'reply' || type === 'reply_all') {
-      setReplyTo(getReplyRecipient(messageDetails));
-    } else {
+      setReplyTo(getReplyRecipient({ ...messageDetails, thread: messageDetails.thread || [messageDetails] }, msg));
+      setReplyBody('');
+    } else if (type === 'forward') {
       setReplyTo('');
+      const formattedDate = formatDate(msg.date);
+      const senderInfo = msg.sender_name 
+        ? `${msg.sender_name} <${msg.sender_email || msg.from}>`
+        : msg.from;
+      const toInfo = Array.isArray(msg.to) ? msg.to.join(', ') : msg.to;
+      
+      let forwardQuote = `<br/><br/>---------- Forwarded message ---------<br/>` +
+        `<b>From:</b> ${senderInfo}<br/>` +
+        `<b>Date:</b> ${formattedDate}<br/>` +
+        `<b>Subject:</b> ${msg.subject || ''}<br/>` +
+        `<b>To:</b> ${toInfo || ''}<br/><br/>`;
+        
+      if (msg.html) {
+        forwardQuote += msg.html;
+      } else if (msg.text) {
+        forwardQuote += `<div style="white-space: pre-wrap;">${msg.text}</div>`;
+      } else {
+        forwardQuote += `<i>(No Content)</i>`;
+      }
+      setReplyBody(forwardQuote);
     }
+  };
+
+  const initiateReply = (type) => {
+    if (!messageDetails) return;
+    initiateIndividualReply(messageDetails, type);
   };
  
   const handleSendReply = async (e) => {
     e.preventDefault();
     let toRecipient = replyTo;
     if (replyType === 'reply' || replyType === 'reply_all') {
-      toRecipient = getReplyRecipient(messageDetails);
+      toRecipient = getReplyRecipient(messageDetails, activeReplyMessage);
     }
     
     if (!toRecipient.trim()) {
@@ -545,10 +576,10 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       let headers = {};
       
       const parsedCc = [];
+      const targetMsg = activeReplyMessage || messageDetails;
+      
       if (replyType === 'reply_all') {
-        const thread = messageDetails.thread || [];
-        const lastMsg = thread.length > 0 ? thread[thread.length - 1] : messageDetails;
-        const toField = lastMsg.to || [];
+        const toField = targetMsg.to || [];
         const toList = Array.isArray(toField) ? toField : [toField];
         
         const cleanEmail = (emailStr) => {
@@ -571,10 +602,10 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       if (replyAttachments.length > 0) {
         bodyData = new FormData();
         bodyData.append('to', toRecipient);
-        bodyData.append('subject', replyType === 'forward' ? `Fwd: ${messageDetails.subject}` : `Re: ${messageDetails.subject}`);
+        bodyData.append('subject', replyType === 'forward' ? `Fwd: ${targetMsg.subject}` : `Re: ${targetMsg.subject}`);
         bodyData.append('body', replyBody);
-        bodyData.append('in_reply_to', messageDetails.message_id || '');
-        bodyData.append('references', messageDetails.references || messageDetails.message_id || '');
+        bodyData.append('in_reply_to', targetMsg.message_id || '');
+        bodyData.append('references', targetMsg.references || targetMsg.message_id || '');
         if (parsedCc.length > 0) {
           bodyData.append('cc', parsedCc.join(','));
         }
@@ -585,10 +616,10 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
         headers['Content-Type'] = 'application/json';
         bodyData = JSON.stringify({
           to: toRecipient.split(',').map(email => email.trim()).filter(Boolean),
-          subject: replyType === 'forward' ? `Fwd: ${messageDetails.subject}` : `Re: ${messageDetails.subject}`,
+          subject: replyType === 'forward' ? `Fwd: ${targetMsg.subject}` : `Re: ${targetMsg.subject}`,
           body: replyBody,
-          in_reply_to: messageDetails.message_id || undefined,
-          references: messageDetails.references || messageDetails.message_id || undefined,
+          in_reply_to: targetMsg.message_id || undefined,
+          references: targetMsg.references || targetMsg.message_id || undefined,
           cc: parsedCc.length > 0 ? parsedCc.map(email => email.trim()).filter(Boolean) : undefined
         });
       }
@@ -1212,7 +1243,44 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                                     {t.sender_name || t.from}
                                     <span style={styles.senderEmail}> &lt;{t.sender_email || t.from}&gt;</span>
                                   </span>
-                                  <span style={styles.senderDate}>{formatDate(t.date)}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <span style={styles.senderDate}>{formatDate(t.date)}</span>
+                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                      <button
+                                        type="button"
+                                        className="individual-msg-action-btn"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          initiateIndividualReply(t, 'reply');
+                                        }}
+                                        title="Reply"
+                                      >
+                                        <Reply size={14} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="individual-msg-action-btn"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          initiateIndividualReply(t, 'reply_all');
+                                        }}
+                                        title="Reply All"
+                                      >
+                                        <Users size={14} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="individual-msg-action-btn"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          initiateIndividualReply(t, 'forward');
+                                        }}
+                                        title="Forward"
+                                      >
+                                        <Forward size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
                                 </div>
                                 <div style={styles.recipientRow}>
                                   to {Array.isArray(t.to) ? t.to.join(', ') : t.to}
