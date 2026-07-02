@@ -84,6 +84,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
   const [replyType, setReplyType] = useState(null);
   const [replyBody, setReplyBody] = useState('');
   const [replyTo, setReplyTo] = useState('');
+  const [replyCc, setReplyCc] = useState('');
   const [replyAttachments, setReplyAttachments] = useState([]);
   const [replySending, setReplySending] = useState(false);
   const [draftId, setDraftId] = useState(null);
@@ -274,6 +275,41 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       }
     } catch (err) {
       alert('Failed to delete email: ' + err.message);
+    }
+  };
+
+  const handleDeleteIndividualMessage = async (msg) => {
+    if (!window.confirm('Are you sure you want to delete this message from the conversation?')) return;
+    try {
+      await request(`/api/messages/${encodeURIComponent(msg.folder)}/${msg.uid}/`, {
+        method: 'DELETE',
+      });
+      
+      // Update local message list
+      setMessages(prev => prev.filter(m => m.uid !== msg.uid || m.folder !== msg.folder));
+      
+      if (messageDetails) {
+        const remainingThread = messageDetails.thread 
+          ? messageDetails.thread.filter(t => !(t.uid === msg.uid && t.folder === msg.folder))
+          : [];
+        
+        if (remainingThread.length === 0) {
+          setSelectedMessage(null);
+          setMessageDetails(null);
+        } else {
+          if (selectedMessage && selectedMessage.uid === msg.uid && selectedMessage.folder === msg.folder) {
+            const newRepresentative = [...remainingThread].sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+            handleSelectMessage(newRepresentative);
+          } else {
+            setMessageDetails(prev => ({
+              ...prev,
+              thread: remainingThread
+            }));
+          }
+        }
+      }
+    } catch (err) {
+      alert('Failed to delete message: ' + err.message);
     }
   };
 
@@ -489,34 +525,78 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
     }
   };
 
-  const getReplyRecipient = (msgDetails, targetMsg = null) => {
-    if (!msgDetails) return '';
-    const lastMsg = targetMsg || (msgDetails.thread && msgDetails.thread.length > 0 
-      ? msgDetails.thread[msgDetails.thread.length - 1] 
-      : msgDetails);
-    
+  const resolveReplyRecipients = (msg, type) => {
     const cleanEmail = (emailStr) => {
       if (!emailStr) return '';
       const match = emailStr.match(/<([^>]+)>/);
       return match ? match[1].trim() : emailStr.trim();
     };
 
-    const senderEmail = lastMsg.sender_email || cleanEmail(lastMsg.from);
     const myEmail = user.mailbox ? user.mailbox.toLowerCase().trim() : '';
-    
-    if (senderEmail.toLowerCase().trim() === myEmail) {
-      const toField = lastMsg.to || [];
-      const recipients = Array.isArray(toField) ? toField : [toField];
-      const otherRecipients = recipients
-        .map(r => cleanEmail(r).toLowerCase().trim())
-        .filter(r => r && r !== myEmail);
-      if (otherRecipients.length > 0) {
-        const matched = recipients.find(r => cleanEmail(r).toLowerCase().trim() === otherRecipients[0]);
-        return matched || otherRecipients[0];
+    const sender = msg.sender_email || cleanEmail(msg.from) || msg.from;
+    const cleanSender = cleanEmail(sender).toLowerCase().trim();
+
+    if (type === 'reply') {
+      // If we are the sender, reply to the first recipient (excluding ourselves)
+      if (cleanSender === myEmail) {
+        const toField = msg.to || [];
+        const toList = Array.isArray(toField) ? toField : [toField];
+        const otherRecipients = toList
+          .map(r => cleanEmail(r).toLowerCase().trim())
+          .filter(r => r && r !== myEmail);
+        if (otherRecipients.length > 0) {
+          const matched = toList.find(r => cleanEmail(r).toLowerCase().trim() === otherRecipients[0]);
+          return { to: matched || otherRecipients[0], cc: '' };
+        }
+        return { to: msg.from || sender, cc: '' };
       }
-      return lastMsg.from || senderEmail;
+      return { to: msg.from || sender, cc: '' };
     }
-    return lastMsg.from || senderEmail;
+
+    if (type === 'reply_all') {
+      const toSet = new Set();
+      const ccSet = new Set();
+
+      // Add sender if not ourselves
+      if (cleanSender !== myEmail) {
+        toSet.add(msg.from || sender);
+      }
+
+      // Add all "to" recipients except ourselves
+      const toField = msg.to || [];
+      const toList = Array.isArray(toField) ? toField : [toField];
+      toList.forEach(r => {
+        const cleanR = cleanEmail(r).toLowerCase().trim();
+        if (cleanR && cleanR !== myEmail) {
+          toSet.add(r);
+        }
+      });
+
+      // Add all "cc" recipients except ourselves
+      const ccField = msg.cc || [];
+      const ccList = Array.isArray(ccField) ? ccField : [ccField];
+      
+      const cleanToEmails = new Set(Array.from(toSet).map(r => cleanEmail(r).toLowerCase().trim()));
+      
+      ccList.forEach(r => {
+        const cleanR = cleanEmail(r).toLowerCase().trim();
+        if (cleanR && cleanR !== myEmail && !cleanToEmails.has(cleanR)) {
+          ccSet.add(r);
+        }
+      });
+
+      // Fallback if toSet is empty (meaning we sent to ourselves or nobody else is in TO/FROM)
+      if (toSet.size === 0) {
+        toSet.add(msg.from || sender);
+      }
+
+      return {
+        to: Array.from(toSet).join(', '),
+        cc: Array.from(ccSet).join(', ')
+      };
+    }
+
+    return { to: '', cc: '' };
   };
 
   const initiateIndividualReply = (msg, type) => {
@@ -526,10 +606,13 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
     setActiveReplyMessage(msg);
     
     if (type === 'reply' || type === 'reply_all') {
-      setReplyTo(getReplyRecipient({ ...messageDetails, thread: messageDetails.thread || [messageDetails] }, msg));
+      const resolved = resolveReplyRecipients(msg, type);
+      setReplyTo(resolved.to);
+      setReplyCc(resolved.cc);
       setReplyBody('');
     } else if (type === 'forward') {
       setReplyTo('');
+      setReplyCc('');
       const formattedDate = formatDate(msg.date);
       const senderInfo = msg.sender_name 
         ? `${msg.sender_name} <${msg.sender_email || msg.from}>`
@@ -555,15 +638,15 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
 
   const initiateReply = (type) => {
     if (!messageDetails) return;
-    initiateIndividualReply(messageDetails, type);
+    const threadMsgs = messageDetails.thread || [messageDetails];
+    const latestMsg = threadMsgs.length > 0 ? threadMsgs[threadMsgs.length - 1] : messageDetails;
+    initiateIndividualReply(latestMsg, type);
   };
  
   const handleSendReply = async (e) => {
     e.preventDefault();
-    let toRecipient = replyTo;
-    if (replyType === 'reply' || replyType === 'reply_all') {
-      toRecipient = getReplyRecipient(messageDetails, activeReplyMessage);
-    }
+    const toRecipient = replyTo;
+    const ccRecipient = replyCc;
     
     if (!toRecipient.trim()) {
       alert('Recipient is required');
@@ -575,30 +658,8 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       let bodyData;
       let headers = {};
       
-      const parsedCc = [];
       const targetMsg = activeReplyMessage || messageDetails;
       
-      if (replyType === 'reply_all') {
-        const toField = targetMsg.to || [];
-        const toList = Array.isArray(toField) ? toField : [toField];
-        
-        const cleanEmail = (emailStr) => {
-          if (!emailStr) return '';
-          const match = emailStr.match(/<([^>]+)>/);
-          return match ? match[1].trim() : emailStr.trim();
-        };
-        
-        const myEmail = user.mailbox ? user.mailbox.toLowerCase().trim() : '';
-        const cleanToRecipient = cleanEmail(toRecipient).toLowerCase().trim();
-        
-        toList.forEach(email => {
-          const cleanR = cleanEmail(email).toLowerCase().trim();
-          if (cleanR !== myEmail && cleanR !== cleanToRecipient) {
-            parsedCc.push(email);
-          }
-        });
-      }
-
       if (replyAttachments.length > 0) {
         bodyData = new FormData();
         bodyData.append('to', toRecipient);
@@ -606,8 +667,8 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
         bodyData.append('body', replyBody);
         bodyData.append('in_reply_to', targetMsg.message_id || '');
         bodyData.append('references', targetMsg.references || targetMsg.message_id || '');
-        if (parsedCc.length > 0) {
-          bodyData.append('cc', parsedCc.join(','));
+        if (ccRecipient.trim()) {
+          bodyData.append('cc', ccRecipient);
         }
         replyAttachments.forEach(file => {
           bodyData.append('attachments', file);
@@ -620,7 +681,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
           body: replyBody,
           in_reply_to: targetMsg.message_id || undefined,
           references: targetMsg.references || targetMsg.message_id || undefined,
-          cc: parsedCc.length > 0 ? parsedCc.map(email => email.trim()).filter(Boolean) : undefined
+          cc: ccRecipient.trim() ? ccRecipient.split(',').map(email => email.trim()).filter(Boolean) : undefined
         });
       }
       
@@ -635,6 +696,13 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       setReplyBody('');
       setReplyAttachments([]);
       setReplyTo('');
+      setReplyCc('');
+      
+      // Refresh list and reload details
+      fetchMessages(activeFolder, false);
+      if (selectedMessage) {
+        handleSelectMessage(selectedMessage);
+      }
     } catch (err) {
       alert('Failed to send reply: ' + err.message);
     } finally {
@@ -1279,6 +1347,17 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                                       >
                                         <Forward size={14} />
                                       </button>
+                                      <button
+                                        type="button"
+                                        className="individual-msg-action-btn"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteIndividualMessage(t);
+                                        }}
+                                        title="Delete message"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
                                     </div>
                                   </div>
                                 </div>
@@ -1431,7 +1510,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                     </div>
                     
                     <form onSubmit={handleSendReply} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {replyType === 'forward' && (
+                      {replyType && (
                         <div style={styles.composeInputRow}>
                           <span style={styles.composeInputLabel}>To</span>
                           <input
@@ -1441,6 +1520,19 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                             style={styles.composeInput}
                             required
                             placeholder="Recipient email address"
+                          />
+                        </div>
+                      )}
+
+                      {(replyType === 'reply_all' || replyCc) && (
+                        <div style={styles.composeInputRow}>
+                          <span style={styles.composeInputLabel}>Cc</span>
+                          <input
+                            type="text"
+                            value={replyCc}
+                            onChange={(e) => setReplyCc(e.target.value)}
+                            style={styles.composeInput}
+                            placeholder="Cc recipient email addresses"
                           />
                         </div>
                       )}
