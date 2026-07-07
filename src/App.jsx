@@ -6,15 +6,29 @@ import SignupView from './views/SignupView';
 import WebmailView from './views/WebmailView';
 import TenantDashboardView from './views/TenantDashboardView';
 import AdminDashboardView from './views/AdminDashboardView';
+import ForgotPasswordView from './views/ForgotPasswordView';
+import ResetPasswordView from './views/ResetPasswordView';
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [isSignupView, setIsSignupView] = useState(false);
+  const [isForgotPasswordView, setIsForgotPasswordView] = useState(false);
+  const [resetParams, setResetParams] = useState(null);
   const [isTenantView, setIsTenantView] = useState(false);
   const [isAdminView, setIsAdminView] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Check url path and params for password reset deep-linking
+    const path = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const uid = params.get('uid');
+    const token = params.get('token');
+    
+    if (path === '/reset-password' && uid && token) {
+      setResetParams({ uid, token });
+    }
+
     async function checkAuth() {
       try {
         const res = await request('/api/auth/me/');
@@ -29,6 +43,25 @@ export default function App() {
     }
     checkAuth();
   }, []);
+
+  if (resetParams) {
+    return (
+      <ResetPasswordView 
+        uid={resetParams.uid}
+        token={resetParams.token}
+        onSuccess={() => {
+          window.history.replaceState({}, document.title, '/');
+          setResetParams(null);
+          setIsForgotPasswordView(false);
+        }}
+        onCancel={() => {
+          window.history.replaceState({}, document.title, '/');
+          setResetParams(null);
+          setIsForgotPasswordView(false);
+        }}
+      />
+    );
+  }
 
   if (loading) {
     return (
@@ -45,6 +78,13 @@ export default function App() {
   }
 
   if (!user) {
+    if (isForgotPasswordView) {
+      return (
+        <ForgotPasswordView 
+          onBackToLogin={() => setIsForgotPasswordView(false)}
+        />
+      );
+    }
     if (isSignupView) {
       return (
         <SignupView 
@@ -60,6 +100,7 @@ export default function App() {
       <LoginView 
         onLoginSuccess={(u) => setUser(u)} 
         onNavigateToSignup={() => setIsSignupView(true)}
+        onNavigateToForgotPassword={() => setIsForgotPasswordView(true)}
       />
     );
   }

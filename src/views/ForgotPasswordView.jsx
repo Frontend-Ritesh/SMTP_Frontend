@@ -1,31 +1,32 @@
 import React, { useState } from 'react';
-import { Mail, Lock, AlertCircle, Loader } from 'lucide-react';
+import { Mail, AlertCircle, Loader, ArrowLeft, CheckCircle } from 'lucide-react';
 import { request } from '../api/client';
 
-export default function LoginView({ onLoginSuccess, onNavigateToSignup, onNavigateToForgotPassword }) {
+export default function ForgotPasswordView({ onBackToLogin }) {
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setLoading(true);
 
     try {
       // Warm up CSRF token first
       await request('/api/csrf/');
       
-      const res = await request('/api/auth/login/', {
+      const res = await request('/api/auth/forgot-password/', {
         method: 'POST',
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username }),
       });
 
       if (res.status === 'success') {
-        onLoginSuccess(res.user);
+        setSuccess(res.message || 'If the account exists, the password reset link has been sent to the admin mail.');
       } else {
-        setError(res.message || 'Login failed');
+        setError(res.message || 'Failed to send password reset request');
       }
     } catch (err) {
       setError(err.message || 'Network error occurred. Please verify your connection.');
@@ -41,8 +42,8 @@ export default function LoginView({ onLoginSuccess, onNavigateToSignup, onNaviga
           <div style={styles.logoContainer}>
             <Mail size={32} color="var(--color-primary)" />
           </div>
-          <h1 style={styles.title}>Micronet Mail</h1>
-          <p style={styles.subtitle}>Self-Hosted Mail Platform Control Plane</p>
+          <h1 style={styles.title}>Forgot Password</h1>
+          <p style={styles.subtitle}>Reset link will be sent to the administrator's mail</p>
         </div>
 
         {error && (
@@ -52,77 +53,62 @@ export default function LoginView({ onLoginSuccess, onNavigateToSignup, onNaviga
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <div style={styles.inputGroup}>
-            <label style={styles.label}>Email Address or Username</label>
-            <div style={styles.inputWrapper}>
-              <Mail size={18} style={styles.inputIcon} />
-              <input
-                type="text"
-                placeholder="alice@example.com"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                style={styles.input}
-                required
-                disabled={loading}
-              />
+        {success ? (
+          <div style={styles.successContainer}>
+            <div style={styles.successIconWrapper}>
+              <CheckCircle size={48} color="var(--color-success)" />
             </div>
+            <p style={styles.successText}>{success}</p>
+            <button onClick={onBackToLogin} style={styles.backBtn}>
+              <ArrowLeft size={16} style={{ marginRight: '8px' }} />
+              Back to Sign In
+            </button>
           </div>
-
-          <div style={styles.inputGroup}>
-            <label style={styles.label}>Password</label>
-            <div style={styles.inputWrapper}>
-              <Lock size={18} style={styles.inputIcon} />
-              <input
-                type="password"
-                placeholder="••••••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                style={styles.input}
-                required
-                disabled={loading}
-              />
+        ) : (
+          <form onSubmit={handleSubmit} style={styles.form}>
+            <div style={styles.inputGroup}>
+              <label style={styles.label}>Email Address or Username</label>
+              <div style={styles.inputWrapper}>
+                <Mail size={18} style={styles.inputIcon} />
+                <input
+                  type="text"
+                  placeholder="alice@example.com"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  style={styles.input}
+                  required
+                  disabled={loading}
+                />
+              </div>
             </div>
-          </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '-0.5rem' }}>
-            <span
-              onClick={onNavigateToForgotPassword}
+            <button
+              type="submit"
               style={{
-                fontSize: '0.8rem',
-                color: 'var(--color-primary)',
-                cursor: 'pointer',
-                fontWeight: '500',
-                textDecoration: 'underline'
+                ...styles.submitBtn,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.8 : 1,
               }}
+              disabled={loading}
             >
-              Forgot Password?
-            </span>
-          </div>
+              {loading ? (
+                <Loader size={20} className="animate-spin" style={styles.spinner} />
+              ) : (
+                'Send Reset Link'
+              )}
+            </button>
 
-          <button
-            type="submit"
-            style={{
-              ...styles.submitBtn,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.8 : 1,
-            }}
-            disabled={loading}
-          >
-            {loading ? (
-              <Loader size={20} className="animate-spin" style={styles.spinner} />
-            ) : (
-              'Sign In'
-            )}
-          </button>
-        </form>
-
-        <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-          Don't have an account?{' '}
-          <span onClick={onNavigateToSignup} style={{ color: 'var(--color-primary)', cursor: 'pointer', fontWeight: '600', textDecoration: 'underline' }}>
-            Sign Up
-          </span>
-        </div>
+            <button
+              type="button"
+              onClick={onBackToLogin}
+              style={styles.cancelBtn}
+              disabled={loading}
+            >
+              <ArrowLeft size={16} style={{ marginRight: '8px' }} />
+              Back to Sign In
+            </button>
+          </form>
+        )}
 
         <div style={styles.footer}>
           <p>Dovecot IMAP • Postfix SMTP • PostgreSQL</p>
@@ -177,6 +163,7 @@ const styles = {
   subtitle: {
     fontSize: '0.875rem',
     color: 'var(--text-secondary)',
+    lineHeight: '1.4',
   },
   errorAlert: {
     display: 'flex',
@@ -188,6 +175,29 @@ const styles = {
     fontSize: '0.875rem',
     marginBottom: '1.5rem',
     border: '1px solid rgba(244, 63, 94, 0.2)',
+  },
+  successContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textAlign: 'center',
+    margin: '1rem 0',
+  },
+  successIconWrapper: {
+    width: '72px',
+    height: '72px',
+    borderRadius: '50%',
+    backgroundColor: 'var(--color-success-soft)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: '1rem',
+  },
+  successText: {
+    fontSize: '0.95rem',
+    color: 'var(--text-primary)',
+    lineHeight: '1.5',
+    marginBottom: '1.5rem',
   },
   form: {
     display: 'flex',
@@ -237,6 +247,36 @@ const styles = {
     fontSize: '0.95rem',
     fontWeight: '600',
     marginTop: '0.5rem',
+    boxShadow: '0 2px 4px rgba(26, 115, 232, 0.2)',
+    border: 'none',
+    transition: 'background-color var(--transition-fast)',
+  },
+  cancelBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0.75rem',
+    backgroundColor: 'transparent',
+    color: 'var(--text-secondary)',
+    borderRadius: 'var(--radius-md)',
+    fontSize: '0.95rem',
+    fontWeight: '600',
+    border: '1px solid var(--glass-border)',
+    cursor: 'pointer',
+    transition: 'background-color var(--transition-fast), color var(--transition-fast)',
+  },
+  backBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0.75rem 1.5rem',
+    backgroundColor: 'var(--color-primary)',
+    color: '#ffffff',
+    borderRadius: 'var(--radius-md)',
+    fontSize: '0.95rem',
+    fontWeight: '600',
+    border: 'none',
+    cursor: 'pointer',
     boxShadow: '0 2px 4px rgba(26, 115, 232, 0.2)',
     transition: 'background-color var(--transition-fast)',
   },
