@@ -1807,10 +1807,48 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       {/* Settings Modal */}
       {showSettings && (
         <div style={styles.modalOverlay}>
+          <style>{`
+            .settings-input {
+              width: 100%;
+              padding: 0.65rem 1rem;
+              background-color: var(--bg-tertiary, #f8f9fa);
+              border: 1px solid var(--glass-border, #dadce0);
+              border-radius: var(--radius-md, 8px);
+              font-size: 0.9rem;
+              color: var(--text-primary);
+              transition: all 0.2s ease-in-out;
+              outline: none;
+              box-sizing: border-box;
+            }
+            .settings-input:focus {
+              border-color: var(--color-primary, #1a73e8) !important;
+              background-color: #ffffff !important;
+              box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.15) !important;
+            }
+            .settings-cancel-btn:hover {
+              background-color: var(--bg-tertiary, #f1f3f4) !important;
+            }
+            .settings-close-btn {
+              background: none;
+              border: none;
+              color: var(--text-secondary);
+              cursor: pointer;
+              padding: 6px;
+              display: flex;
+              align-items: center;
+              justifyContent: center;
+              border-radius: 50%;
+              transition: all 0.2s;
+            }
+            .settings-close-btn:hover {
+              background-color: var(--bg-tertiary, #f1f3f4) !important;
+              color: var(--text-primary) !important;
+            }
+          `}</style>
           <div style={styles.modalContent} className="animate-fade">
             <div style={styles.modalHeader}>
               <h2 style={styles.modalTitle}>Account Settings</h2>
-              <button style={styles.closeModalBtn} onClick={() => {
+              <button className="settings-close-btn" onClick={() => {
                 setShowSettings(false);
                 setSettingsError('');
                 setSettingsSuccess('');
@@ -1842,10 +1880,10 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                   <label style={styles.label}>Recovery Email Address</label>
                   <input
                     type="email"
+                    className="settings-input"
                     placeholder="recovery@example.com"
                     value={recoveryEmail}
                     onChange={(e) => setRecoveryEmail(e.target.value)}
-                    style={styles.input}
                   />
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                     Used to send you a password reset link if you forget your password.
@@ -1860,20 +1898,20 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                     <label style={styles.label}>New Password</label>
                     <input
                       type="password"
+                      className="settings-input"
                       placeholder="At least 12 characters"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      style={styles.input}
                     />
                   </div>
                   <div style={styles.inputGroup}>
                     <label style={styles.label}>Confirm New Password</label>
                     <input
                       type="password"
+                      className="settings-input"
                       placeholder="••••••••••••"
                       value={confirmNewPassword}
                       onChange={(e) => setConfirmNewPassword(e.target.value)}
-                      style={styles.input}
                     />
                   </div>
                 </div>
@@ -1883,6 +1921,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                 <button
                   type="button"
                   style={styles.cancelBtn}
+                  className="settings-cancel-btn"
                   onClick={() => {
                     setShowSettings(false);
                     setSettingsError('');
@@ -1911,6 +1950,41 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
 }
 
 const styles = {
+  inputGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    width: '100%',
+  },
+  label: {
+    fontSize: '0.85rem',
+    fontWeight: '600',
+    color: 'var(--text-secondary)',
+    marginBottom: '2px',
+  },
+  errorAlert: {
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: 'rgba(217, 48, 37, 0.08)',
+    color: '#d93025',
+    padding: '0.75rem 1rem',
+    borderRadius: 'var(--radius-md, 8px)',
+    fontSize: '0.875rem',
+    border: '1px solid rgba(217, 48, 37, 0.2)',
+    boxSizing: 'border-box',
+    width: '100%',
+  },
+  cancelBtn: {
+    padding: '0.6rem 1.2rem',
+    backgroundColor: 'transparent',
+    color: 'var(--text-secondary)',
+    border: 'none',
+    borderRadius: 'var(--radius-md, 8px)',
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
   settingsBtn: {
     display: 'flex',
     alignItems: 'center',
