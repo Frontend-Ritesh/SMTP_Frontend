@@ -47,6 +47,44 @@
   padding: 0;
 }
 
+ul, ol {
+  padding-left: 32px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+ul {
+  list-style-type: disc;
+}
+
+ol {
+  list-style-type: decimal;
+}
+
+li {
+  margin-bottom: 4px;
+}
+
+/* Specific alignments for contenteditable compose/draft editor */
+.rte-editor ul, .rte-editor ol {
+  padding-left: 32px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  list-style-position: outside;
+}
+
+.rte-editor ul {
+  list-style-type: disc !important;
+}
+
+.rte-editor ol {
+  list-style-type: decimal !important;
+}
+
+.rte-editor li {
+  margin-bottom: 4px;
+}
+
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);

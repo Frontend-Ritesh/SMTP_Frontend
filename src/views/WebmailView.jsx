@@ -29,8 +29,8 @@ const RichTextEditor = ({ value, onChange, placeholder, id }) => {
   };
 
   return (
-    <div style={styles.rteContainer}>
-      <div style={styles.rteToolbar}>
+    <div style={styles.rteContainer} className="rte-container">
+      <div style={styles.rteToolbar} className="rte-toolbar">
         <button type="button" style={styles.rteToolbarBtn} onClick={() => executeCommand('bold')} title="Bold">
           <b>B</b>
         </button>
@@ -55,6 +55,7 @@ const RichTextEditor = ({ value, onChange, placeholder, id }) => {
         onInput={handleInput}
         placeholder={placeholder}
         style={styles.rteEditor}
+        className="rte-editor"
       />
     </div>
   );
@@ -1438,6 +1439,20 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                                               margin: 0;
                                               padding: 10px;
                                               background-color: transparent;
+                                            }
+                                            ul, ol {
+                                              padding-left: 32px;
+                                              margin-top: 8px;
+                                              margin-bottom: 8px;
+                                            }
+                                            ul {
+                                              list-style-type: disc;
+                                            }
+                                            ol {
+                                              list-style-type: decimal;
+                                            }
+                                            li {
+                                              margin-bottom: 4px;
                                             }
                                           </style>
                                         </head>
