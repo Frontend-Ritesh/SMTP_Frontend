@@ -4,7 +4,7 @@ import {
   Search, RefreshCw, Trash2, Edit, LogOut, ShieldAlert as AdminIcon,
   Paperclip, X, ChevronRight, User, Calendar, Plus, ChevronLeft,
   Star, MoreVertical, ChevronDown, ShieldOff, ShieldCheck, Reply,
-  Forward
+  Forward, Settings, AlertCircle, CheckCircle
 } from 'lucide-react';
 import { request } from '../api/client';
 
@@ -101,6 +101,14 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
   const [composeBody, setComposeBody] = useState('');
   const [attachments, setAttachments] = useState([]);
   const [sending, setSending] = useState(false);
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState(user.recovery_email || '');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState('');
+  const [settingsSuccess, setSettingsSuccess] = useState('');
 
   const fileInputRef = useRef(null);
   const avatarInputRef = useRef(null);
@@ -400,6 +408,50 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       alert('Failed to send: ' + err.message);
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setSettingsError('');
+    setSettingsSuccess('');
+
+    if (newPassword) {
+      if (newPassword.length < 12) {
+        setSettingsError('Password must be at least 12 characters long.');
+        return;
+      }
+      if (newPassword !== confirmNewPassword) {
+        setSettingsError('New passwords do not match.');
+        return;
+      }
+    }
+
+    setSavingSettings(true);
+    try {
+      await request('/api/csrf/');
+
+      const res = await request('/api/auth/profile/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password: newPassword || undefined,
+          recovery_email: recoveryEmail
+        })
+      });
+
+      if (res.status === 'success') {
+        setSettingsSuccess('Settings updated successfully!');
+        setNewPassword('');
+        setConfirmNewPassword('');
+        user.recovery_email = recoveryEmail;
+      } else {
+        setSettingsError(res.message || 'Failed to update settings.');
+      }
+    } catch (err) {
+      setSettingsError(err.message || 'Failed to update settings.');
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -948,25 +1000,34 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
 
         <div style={styles.sidebarFooter}>
           <div 
-            style={{ ...styles.userInfo, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }} 
-            onClick={handleAvatarClick}
-            title="Click to change profile picture"
+            style={{ ...styles.userInfo, display: 'flex', alignItems: 'center', gap: '10px' }} 
           >
             {avatar ? (
-              <img src={avatar} style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }} alt="Avatar" />
+              <img 
+                src={avatar} 
+                style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', cursor: 'pointer' }} 
+                alt="Avatar" 
+                onClick={handleAvatarClick}
+                title="Click to change profile picture"
+              />
             ) : (
-              <div style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--color-primary-soft)',
-                color: 'var(--color-primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: '600',
-                fontSize: '0.8rem'
-              }}>
+              <div 
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '50%',
+                  backgroundColor: 'var(--color-primary-soft)',
+                  color: 'var(--color-primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: '600',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer'
+                }}
+                onClick={handleAvatarClick}
+                title="Click to change profile picture"
+              >
                 {user.username ? user.username[0].toUpperCase() : 'U'}
               </div>
             )}
@@ -979,6 +1040,10 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
             accept="image/*" 
             onChange={handleAvatarChange} 
           />
+          <button style={styles.settingsBtn} onClick={() => setShowSettings(true)} title="Account Settings">
+            <Settings size={16} style={{ marginRight: '8px' }} />
+            <span>Account Settings</span>
+          </button>
           <button style={styles.logoutBtn} onClick={handleLogoutClick} title="Logout">
             <LogOut size={16} style={{ marginRight: '8px' }} />
             <span>Logout</span>
@@ -1738,11 +1803,212 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
           </form>
         </div>
       )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent} className="animate-fade">
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Account Settings</h2>
+              <button style={styles.closeModalBtn} onClick={() => {
+                setShowSettings(false);
+                setSettingsError('');
+                setSettingsSuccess('');
+                setNewPassword('');
+                setConfirmNewPassword('');
+              }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {settingsError && (
+              <div style={styles.errorAlert}>
+                <AlertCircle size={18} style={{ marginRight: '8px', flexShrink: 0 }} />
+                <span>{settingsError}</span>
+              </div>
+            )}
+
+            {settingsSuccess && (
+              <div style={styles.successAlert}>
+                <CheckCircle size={18} style={{ marginRight: '8px', flexShrink: 0 }} />
+                <span>{settingsSuccess}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveSettings} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '15px' }}>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: '700', marginBottom: '10px', color: 'var(--text-primary)' }}>Recovery Email</h3>
+                <div style={styles.inputGroup}>
+                  <label style={styles.label}>Recovery Email Address</label>
+                  <input
+                    type="email"
+                    placeholder="recovery@example.com"
+                    value={recoveryEmail}
+                    onChange={(e) => setRecoveryEmail(e.target.value)}
+                    style={styles.input}
+                  />
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Used to send you a password reset link if you forget your password.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: '700', marginBottom: '10px', color: 'var(--text-primary)' }}>Change Password</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>New Password</label>
+                    <input
+                      type="password"
+                      placeholder="At least 12 characters"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>Confirm New Password</label>
+                    <input
+                      type="password"
+                      placeholder="••••••••••••"
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      style={styles.input}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.modalFooter}>
+                <button
+                  type="button"
+                  style={styles.cancelBtn}
+                  onClick={() => {
+                    setShowSettings(false);
+                    setSettingsError('');
+                    setSettingsSuccess('');
+                    setNewPassword('');
+                    setConfirmNewPassword('');
+                  }}
+                  disabled={savingSettings}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={styles.saveBtn}
+                  disabled={savingSettings}
+                >
+                  {savingSettings ? <RefreshCw size={16} className="animate-spin" /> : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const styles = {
+  settingsBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '0.5rem 0.75rem',
+    color: 'var(--color-primary)',
+    backgroundColor: 'var(--color-primary-soft)',
+    borderRadius: 'var(--radius-md)',
+    fontSize: '0.85rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    width: '100%',
+    justifyContent: 'center',
+    border: 'none',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backdropFilter: 'blur(4px)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  modalContent: {
+    backgroundColor: 'var(--bg-primary)',
+    border: '1px solid var(--glass-border)',
+    borderRadius: 'var(--radius-lg)',
+    width: '100%',
+    maxWidth: '480px',
+    padding: '2rem',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '20px',
+  },
+  modalHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottom: '1px solid var(--glass-border)',
+    paddingBottom: '12px',
+  },
+  modalTitle: {
+    fontSize: '1.25rem',
+    fontWeight: '800',
+    color: 'var(--text-primary)',
+    fontFamily: 'var(--font-display)',
+  },
+  closeModalBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    padding: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '50%',
+    transition: 'background-color var(--transition-fast)',
+  },
+  successAlert: {
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: 'var(--color-success-soft)',
+    color: 'var(--color-success)',
+    padding: '0.75rem 1rem',
+    borderRadius: 'var(--radius-md)',
+    fontSize: '0.875rem',
+    marginBottom: '10px',
+    border: '1px solid rgba(30, 142, 62, 0.2)',
+  },
+  modalFooter: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '12px',
+    borderTop: '1px solid var(--glass-border)',
+    paddingTop: '15px',
+    marginTop: '10px',
+  },
+  saveBtn: {
+    padding: '0.6rem 1.2rem',
+    backgroundColor: 'var(--color-primary)',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: 'var(--radius-md)',
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    boxShadow: '0 2px 4px rgba(26, 115, 232, 0.2)',
+  },
   appContainer: {
     display: 'flex',
     height: '100vh',
