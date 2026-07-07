@@ -636,11 +636,18 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
       setReplyBody(forwardQuote);
     }
 
-    // Auto-focus the editor when composer is shown
+    // Auto-focus the editor or recipient field when composer is shown
     setTimeout(() => {
-      const editorEl = document.getElementById('reply-body-editor');
-      if (editorEl) {
-        editorEl.focus();
+      if (type === 'forward') {
+        const toInputEl = document.getElementById('reply-to-input');
+        if (toInputEl) {
+          toInputEl.focus();
+        }
+      } else {
+        const editorEl = document.getElementById('reply-body-editor');
+        if (editorEl) {
+          editorEl.focus();
+        }
       }
     }, 100);
   };
@@ -1537,6 +1544,7 @@ export default function WebmailView({ user, onLogout, onNavigateToAdmin, onNavig
                         <div style={styles.composeInputRow}>
                           <span style={styles.composeInputLabel}>To</span>
                           <input
+                            id="reply-to-input"
                             type="text"
                             value={replyTo}
                             onChange={(e) => setReplyTo(e.target.value)}
